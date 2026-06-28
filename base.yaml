@@ -1,0 +1,156 @@
+# =============================================================================
+# configs/base.yaml — Base Configuration
+# crypto-ssl-market-states
+#
+# This file is the single source of truth for every controlled variable in
+# the experiment (DS-03 Section 3, ADR-020).
+#
+# Rules:
+#   - Every numeric hyperparameter in the source code must reference this file.
+#   - No hardcoded values are permitted in any source module.
+#   - Condition-specific configs (experiment_*.yaml) inherit from this file
+#     and override only the active_branches and condition fields.
+#   - A snapshot of the resolved config is saved in every experiment artifact.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Project identity
+# ---------------------------------------------------------------------------
+project:
+  name: "crypto-ssl-market-states"
+  version: "1.0.0"
+  description: "Multi-Resolution Temporal Encoding for Self-Supervised Cryptocurrency Market State Discovery"
+
+# ---------------------------------------------------------------------------
+# TS2Vec external dependency (ADR-001)
+# ACTION REQUIRED: Replace placeholder with actual pinned commit hash.
+# ---------------------------------------------------------------------------
+ts2vec:
+  commit_hash: "{TS2VEC_COMMIT_HASH}"          # e.g. "a5b3c2d..."
+  primary_repo: "https://github.com/yuezhihan/ts2vec"
+  fallback_repo: "https://github.com/{AUTHOR_GITHUB}/ts2vec"
+
+# ---------------------------------------------------------------------------
+# Data acquisition (DS-02 Stage 0)
+# ---------------------------------------------------------------------------
+data:
+  symbol: "BTC/USDT"
+  exchange: "binance"
+  timeframes:
+    - "15m"
+    - "1h"
+    - "4h"
+    - "1d"
+  start_date: "2020-01-01"                     # ISO-8601, UTC assumed
+  end_date:   "2023-12-31"
+  raw_dir:       "data/raw"
+  interim_dir:   "data/interim"
+  processed_dir: "data/processed"
+  max_gap_ratio: 0.05                          # Abort if missing candles exceed 5%
+
+# ---------------------------------------------------------------------------
+# Temporal split (ADR-014, DS-02 Stage 4)
+# ---------------------------------------------------------------------------
+split:
+  train_end:  "2022-12-31 23:00:00"           # UTC, inclusive
+  test_start: "2023-01-01 00:00:00"           # UTC, inclusive
+
+# ---------------------------------------------------------------------------
+# Feature engineering (ADR-015, DS-02 Stage 3)
+# ---------------------------------------------------------------------------
+features:
+  n_features: 7
+  volume_zscore_window: 20                     # Rolling window in aligned 1h rows
+
+# ---------------------------------------------------------------------------
+# Window generation (ADR-006, ADR-016, DS-02 Stage 5)
+# ---------------------------------------------------------------------------
+windows:
+  W: 48                                        # Window size in candles
+  stride: 1                                    # Sliding window stride
+  epsilon: 1.0e-8                              # Z-score denominator stabilizer
+
+# ---------------------------------------------------------------------------
+# Encoder architecture (DS-03 §3 Controlled Variables)
+# All four branches share identical architecture — only timeframe data differs.
+# ---------------------------------------------------------------------------
+encoder:
+  input_dim: 7                                 # Features per timestep (= features.n_features)
+  output_dim: 64                               # Branch embedding dimension per ADR-002
+  hidden_dim: 64                               # TS2Vec hidden dimension
+  depth: 10                                    # Dilated CNN layers
+  mask_ratio: 0.5                              # TS2Vec default masking ratio
+
+# ---------------------------------------------------------------------------
+# Fusion (ADR-003, ADR-013, DS-02 Stage 7)
+# ---------------------------------------------------------------------------
+fusion:
+  output_dim: 256                              # Fixed output dimension for all conditions
+  projection_seed: 42                          # PROJECTION_SEED — deterministic random matrix
+
+# ---------------------------------------------------------------------------
+# Training protocol (DS-03 §3 Controlled Variables)
+# ---------------------------------------------------------------------------
+training:
+  optimizer: "AdamW"
+  learning_rate: 1.0e-3
+  weight_decay: 1.0e-4
+  batch_size: 8
+  max_epochs: 50
+  early_stopping_patience: 10
+  checkpoint_dir: "checkpoints"
+
+# ---------------------------------------------------------------------------
+# Statistical protocol (ADR-019)
+# ---------------------------------------------------------------------------
+experiment:
+  seeds:
+    - 42
+    - 123
+    - 456
+    - 789
+    - 1024
+  experiments_dir: "experiments"
+
+# ---------------------------------------------------------------------------
+# HDBSCAN clustering (ADR-004, ADR-018, DS-02 Stage 8)
+# ---------------------------------------------------------------------------
+clustering:
+  metric: "euclidean"
+  min_clusters: 2                              # Hard lower bound (degenerate guard)
+  max_clusters: 8                              # Hard upper bound (ADR-018)
+  grid_search:
+    min_cluster_size: [50, 100, 200]
+    min_samples: [5, 10, 20]
+  fallback_grid:
+    min_cluster_size: [20, 50, 100, 200]       # Used if primary grid produces no valid configs
+    min_samples: [5, 10, 20]
+
+# ---------------------------------------------------------------------------
+# Evaluation (DS-02 Stage 9, DS-03 §6)
+# ---------------------------------------------------------------------------
+evaluation:
+  primary_metric: "silhouette"                 # Used for HDBSCAN Stage 1 selection
+  significance_level: 0.05                     # Alpha for all statistical tests
+
+# ---------------------------------------------------------------------------
+# Outputs (ADR-012)
+# ---------------------------------------------------------------------------
+outputs:
+  base_dir: "outputs"
+  figures:
+    dpi: 300
+    formats:
+      - "png"
+      - "pdf"
+      - "svg"
+    font_type_pdf: 42                          # Embed fonts in PDF (matplotlib rcParam)
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging:
+  level: "INFO"                                # DEBUG | INFO | WARNING | ERROR
+  log_dir: "logs"
+  format: "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+  date_format: "%Y-%m-%d %H:%M:%S"
